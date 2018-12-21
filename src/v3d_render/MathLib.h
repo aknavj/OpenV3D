@@ -44,19 +44,21 @@ namespace V3d {
 	 */
 	struct vec3 {
 
-		vec3() : x(0.0f), y(0.0f), z(0.0f) { }
-		vec3(float X, float Y, float Z) : x(X), y(Y), z(Z) { }
+		vec3() : x(0.0f), y(0.0f), z(0.0f), w(1.0f) { }
+		vec3(float X, float Y, float Z, float W = 1.0f) : x(X), y(Y), z(Z), w(W) { }
 		~vec3() { }
 
 		void operator=(vec3 &v) {
 			x = v.x;
 			y = v.y;
 			z = v.z;
+			w = v.w;
 		}
 
 		float x;
 		float y;
 		float z;
+		float w;
 	};
 
 	/* triangle struct
@@ -79,8 +81,8 @@ namespace V3d {
 		}
 
 		// triangle points with UV tex coords
-		triangle(vec3 p0, vec3 p1, vec3 p2, vec2 u, vec2 v) {
-			p[0] = p0; p[1] = p1; p[2] = p2; t[0] = u; t[1] = v;
+		triangle(vec3 p0, vec3 p1, vec3 p2, vec2 u, vec2 v, vec2 w) {
+			p[0] = p0; p[1] = p1; p[2] = p2; t[0] = u; t[1] = v; t[3] = w;
 		}
 
 		// triangle points with normal and color
@@ -95,7 +97,7 @@ namespace V3d {
 
 		vec3 p[3];	// points
 		vec3 n[3];	// normals
-		vec2 t[2];	// uvs
+		vec2 t[3];	// uvs
 		pixel c;	// color
 	};
 
@@ -108,7 +110,30 @@ namespace V3d {
 
 /* MathLib functions
  */
-void MatrixMultiplyVector(V3d::vec3 &i, V3d::vec3 &o, V3d::mat4 &m);
+
+// matrix functions
+void MatrixMultiply(V3d::vec3 &i, V3d::vec3 &o, V3d::mat4 &m);
+V3d::vec3 MatrixMultiplyVector(V3d::mat4 &m, V3d::vec3 &i);
+V3d::mat4 MatrixIdentity();
+V3d::mat4 MatrixRotationX(float angle);
+V3d::mat4 MatrixRotationY(float angle);
+V3d::mat4 MatrixRotationZ(float angle);
+V3d::mat4 MatrixTranslation(float x, float y, float z);
 V3d::mat4 MatrixProjection(float fov, float aspectratio, float near, float far);
+V3d::mat4 MatrixMultiply(V3d::mat4 &m1, V3d::mat4 &m2);
+V3d::mat4 MatrixPointAt(V3d::vec3 &pos, V3d::vec3 &target, V3d::vec3 &up);
+V3d::mat4 MatrixQuickInverse(V3d::mat4 &m);
+
+// vector functions
+V3d::vec3 VectorAdd(V3d::vec3 &v1, V3d::vec3 &v2);
+V3d::vec3 VectorSub(V3d::vec3 &v1, V3d::vec3 &v2);
+V3d::vec3 VectorMul(V3d::vec3 &v1, float k);
+V3d::vec3 VectorDiv(V3d::vec3 &v1, float k);
+float VectorDotProduct(V3d::vec3 &v1, V3d::vec3 &v2);
+float VectorLength(V3d::vec3 &v1);
+V3d::vec3 VectorNormalize(V3d::vec3 &v);
+V3d::vec3 VectorCrossProduct(V3d::vec3 &v1, V3d::vec3 &v2);
+V3d::vec3 VectorIntersectPlane(V3d::vec3 &plane_p, V3d::vec3 &plane_n, V3d::vec3 &lineStart, V3d::vec3 &lineEnd);
+int TriangleClipAgainstPlane(V3d::vec3 plane_p, V3d::vec3 plane_n, V3d::triangle &in_tri, V3d::triangle &out_tri1, V3d::triangle &out_tri2);
 
 #endif /* __V3D_MATHLIB_H__ */
