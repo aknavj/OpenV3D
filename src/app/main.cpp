@@ -8,22 +8,24 @@
 /*
  */
 V3DRender v3d(WINDOW_WIDTH, WINDOW_HEIGHT);
-V3d::mat4 projection;
-V3d::mat4 modelview;
+V3d::mat4 projection_matrix;
+V3d::mat4 world_matrix;
 
 V3d::mesh mesh;
 V3d::vec3 camera;
+V3d::vec3 look_dir;
 
 float fTheta;
+float fYaw;
 int xpos = 0, step = 5;
 
 /*
  */
 bool Initialize() {
 	
-	mesh = v3d_mesh_load_obj("ship.obj");
+	mesh.load_obj("ship.obj");
 
-	projection = MatrixProjection(90.0f, (float)WINDOW_HEIGHT / (float)WINDOW_WIDTH, 0.1f, 1000.0f);
+	projection_matrix = MatrixProjection(90.0f, (float)WINDOW_HEIGHT / (float)WINDOW_WIDTH, 0.1f, 1000.0f);
 
 	return true;
 }
@@ -35,165 +37,150 @@ void UpdateScene() {
 /*
  */
 void RenderScene() {
-	v3d.Clear(V3d::pixel(0, 0, 0));
 
-#ifdef LIBRARY_TEST
-	xpos += step;
-
-	if (xpos < 0 || xpos > WINDOW_WIDTH)
-	step *= -1;
-
-	v3d.RenderFill(10, 10, v3d.GetWidth(), v3d.GetHeight(), pixel(0, 255, 0));
-
-	v3d.RenderLine(50, 100, 300, 300, pixel(0, 0, 255));
-
-	v3d.RenderFillCircle(350, 350, 50, pixel(45, 45, 45));
-
-	v3d.RenderFillTriangle(xpos + 100, 200, xpos - 100, 200, xpos, 300, pixel(255, 0, 255));
-#else
 	// set up rotation matrices
-	V3d::mat4 matRotZ, matRotX;
+	V3d::mat4 matRotZ, matRotX, matRotY;
 	fTheta += 0.01f;
 	
-	// rotation Z
-	matRotZ.m[0][0] = cosf(fTheta);
-	matRotZ.m[0][1] = sinf(fTheta);
-	matRotZ.m[1][0] = -sinf(fTheta);
-	matRotZ.m[1][1] = cosf(fTheta);
-	matRotZ.m[2][2] = 1;
-	matRotZ.m[3][3] = 1;
+	matRotZ = MatrixRotationZ(0.0f);
+	matRotX = MatrixRotationX(16.0f);
+	matRotY = MatrixRotationY(fTheta);
 
-	// rotation X
-	matRotX.m[0][0] = 1;
-	matRotX.m[1][1] = cosf(fTheta * 0.5f);
-	matRotX.m[1][2] = sinf(fTheta * 0.5f);
-	matRotX.m[2][1] = -sinf(fTheta * 0.5f);
-	matRotX.m[2][2] = cosf(fTheta * 0.5f);
-	matRotX.m[3][3] = 1;
+	V3d::mat4 translation;
+	translation = MatrixTranslation(0.0f, 0.0f, 10.0f);
 
-#ifdef NO_SORT
-	// draw triangles
-	for (auto tri : mesh.triangles) {
+	world_matrix = MatrixIdentity();
+	world_matrix = MatrixMultiply(matRotZ, matRotX);
+	world_matrix = MatrixMultiply(world_matrix, matRotY);
+	world_matrix = MatrixMultiply(world_matrix, translation);
 
-		triangle triProjected, triTranslated, triRotatedZ, triRotatedZX;
+	V3d::vec3 up = { 0,1,0 };
+	V3d::vec3 target = { 0,0,1 };
+	V3d::mat4 camera_rot = MatrixRotationY(fYaw);
+	look_dir = MatrixMultiplyVector(camera_rot, target);
+	target = VectorAdd(camera, look_dir);
+	V3d::mat4 camera_matrix = MatrixPointAt(camera, target, up);
 
-		// rotate in Z-Axis
-		MatrixMultiplyVector(tri.p[0], triRotatedZ.p[0], matRotZ);
-		MatrixMultiplyVector(tri.p[1], triRotatedZ.p[1], matRotZ);
-		MatrixMultiplyVector(tri.p[2], triRotatedZ.p[2], matRotZ);
+	// make view matrix from camera
+	V3d::mat4 view_matrix = MatrixQuickInverse(camera_matrix);
 
-		// rotate in X-Axis
-		MatrixMultiplyVector(triRotatedZ.p[0], triRotatedZX.p[0], matRotX);
-		MatrixMultiplyVector(triRotatedZ.p[1], triRotatedZX.p[1], matRotX);
-		MatrixMultiplyVector(triRotatedZ.p[2], triRotatedZX.p[2], matRotX);
-
-		// offset into the screen
-		triTranslated = triRotatedZX;
-		triTranslated.p[0].z = triRotatedZX.p[0].z + 3.0f;
-		triTranslated.p[1].z = triRotatedZX.p[1].z + 3.0f;
-		triTranslated.p[2].z = triRotatedZX.p[2].z + 3.0f;
-
-		// project triangles from 3D --> 2D
-		MatrixMultiplyVector(triTranslated.p[0], triProjected.p[0], projection);
-		MatrixMultiplyVector(triTranslated.p[1], triProjected.p[1], projection);
-		MatrixMultiplyVector(triTranslated.p[2], triProjected.p[2], projection);
-
-		// scale into view
-		triProjected.p[0].x += 1.0f; triProjected.p[0].y += 1.0f;
-		triProjected.p[1].x += 1.0f; triProjected.p[1].y += 1.0f;
-		triProjected.p[2].x += 1.0f; triProjected.p[2].y += 1.0f;
-		triProjected.p[0].x *= 0.5f * (float)WINDOW_WIDTH;
-		triProjected.p[0].y *= 0.5f  * (float)WINDOW_HEIGHT;
-		triProjected.p[1].x *= 0.5f  * (float)WINDOW_WIDTH;
-		triProjected.p[1].y *= 0.5f  * (float)WINDOW_HEIGHT;
-		triProjected.p[2].x *= 0.5f  * (float)WINDOW_WIDTH;
-		triProjected.p[2].y *= 0.5f  * (float)WINDOW_HEIGHT;
-
-		// rasterize triangle
-		v3d.RenderTriangle(triProjected.p[0].x, triProjected.p[0].y,
-			triProjected.p[1].x, triProjected.p[1].y,
-			triProjected.p[2].x, triProjected.p[2].y,
-			pixel(255, 255, 255));
-
-	}
-#else
 	// store triagles for rastering later
 	std::vector<V3d::triangle> vecTrianglesToRaster;
 
 	// draw triangles
-	for (auto tri : mesh.triangles)
-	{
-		V3d::triangle triProjected, triTranslated, triRotatedZ, triRotatedZX;
+	for (auto tri : mesh.triangles) {
+		V3d::triangle triProjected, triTransformed, triViewed;
 
-		// rotate in Z-Axis
-		MatrixMultiplyVector(tri.p[0], triRotatedZ.p[0], matRotZ);
-		MatrixMultiplyVector(tri.p[1], triRotatedZ.p[1], matRotZ);
-		MatrixMultiplyVector(tri.p[2], triRotatedZ.p[2], matRotZ);
-
-		// rotate in X-Axis
-		MatrixMultiplyVector(triRotatedZ.p[0], triRotatedZX.p[0], matRotX);
-		MatrixMultiplyVector(triRotatedZ.p[1], triRotatedZX.p[1], matRotX);
-		MatrixMultiplyVector(triRotatedZ.p[2], triRotatedZX.p[2], matRotX);
-
-		// offset into the screen
-		triTranslated = triRotatedZX;
-		triTranslated.p[0].z = triRotatedZX.p[0].z + 8.0f;
-		triTranslated.p[1].z = triRotatedZX.p[1].z + 8.0f;
-		triTranslated.p[2].z = triRotatedZX.p[2].z + 8.0f;
+		// world Matrix Transform
+		triTransformed.p[0] = MatrixMultiplyVector(world_matrix, tri.p[0]);
+		triTransformed.p[1] = MatrixMultiplyVector(world_matrix, tri.p[1]);
+		triTransformed.p[2] = MatrixMultiplyVector(world_matrix, tri.p[2]);
+		triTransformed.t[0] = tri.t[0];
+		triTransformed.t[1] = tri.t[1];
+		triTransformed.t[2] = tri.t[2];
 
 		// use Cross-Product to get surface normal
 		V3d::vec3 normal, line1, line2;
 
-		line1.x = triTranslated.p[1].x - triTranslated.p[0].x;
-		line1.y = triTranslated.p[1].y - triTranslated.p[0].y;
-		line1.z = triTranslated.p[1].z - triTranslated.p[0].z;
+		// get lines either side of triangle
+		line1 = VectorSub(triTransformed.p[1], triTransformed.p[0]);
+		line2 = VectorSub(triTransformed.p[2], triTransformed.p[0]);
 
-		line2.x = triTranslated.p[2].x - triTranslated.p[0].x;
-		line2.y = triTranslated.p[2].y - triTranslated.p[0].y;
-		line2.z = triTranslated.p[2].z - triTranslated.p[0].z;
+		// take cross product of lines to get normal to triangle surface
+		normal = VectorCrossProduct(line1, line2);
 
-		normal.x = line1.y * line2.z - line1.z * line2.y;
-		normal.y = line1.z * line2.x - line1.x * line2.z;
-		normal.z = line1.x * line2.y - line1.y * line2.x;
+		// you normally need to Normalize a normal!
+		normal = VectorNormalize(normal);
 
-		// It's normally normal to normalise the normal
-		float l = sqrtf(normal.x*normal.x + normal.y*normal.y + normal.z*normal.z);
-		normal.x /= l; normal.y /= l; normal.z /= l;
+		// get Ray from triangle to camera
+		V3d::vec3 camera_ray = VectorSub(triTransformed.p[0], camera);
 
 		//if (normal.z < 0)
-		if (normal.x * (triTranslated.p[0].x - camera.x) +
-			normal.y * (triTranslated.p[0].y - camera.y) +
-			normal.z * (triTranslated.p[0].z - camera.z) < 0.0f)
-		{
+		if (VectorDotProduct(normal, camera_ray) < 0.0f) {
 			// illumination
-			V3d::vec3 light_direction = V3d::vec3(0.0f, 0.0f, -1.0f);
-			float l = sqrtf(light_direction.x*light_direction.x + light_direction.y*light_direction.y + light_direction.z*light_direction.z);
-			light_direction.x /= l; light_direction.y /= l; light_direction.z /= l;
+			V3d::vec3 light_direction = { 0.0f, 1.0f, -1.0f };
+			light_direction = VectorNormalize(light_direction);
 
-			// how similar is normal to light direction
-			float dp = normal.x * light_direction.x + normal.y * light_direction.y + normal.z * light_direction.z;
+			// how "aligned" are light direction and triangle surface normal?
+			float dp = max(0.1f, VectorDotProduct(light_direction, normal));
+
 			V3d::pixel color = V3d::pixel(dp * 255.0f, dp * 255.0f, dp * 255.0f);
-			triTranslated.c = color;
+			triTransformed.c = color;
 
 			// project triangles from 3D --> 2D
-			MatrixMultiplyVector(triTranslated.p[0], triProjected.p[0], projection);
-			MatrixMultiplyVector(triTranslated.p[1], triProjected.p[1], projection);
-			MatrixMultiplyVector(triTranslated.p[2], triProjected.p[2], projection);
-			triProjected.c = triTranslated.c;
+			triViewed.p[0] = MatrixMultiplyVector(view_matrix, triTransformed.p[0]);
+			triViewed.p[1] = MatrixMultiplyVector(view_matrix, triTransformed.p[1]);
+			triViewed.p[2] = MatrixMultiplyVector(view_matrix, triTransformed.p[2]);
+			triViewed.t[0] = triTransformed.t[0];
+			triViewed.t[1] = triTransformed.t[1];
+			triViewed.t[2] = triTransformed.t[2];
+			triViewed.c = triTransformed.c;
 
-			// scale into view
-			triProjected.p[0].x += 1.0f; triProjected.p[0].y += 1.0f;
-			triProjected.p[1].x += 1.0f; triProjected.p[1].y += 1.0f;
-			triProjected.p[2].x += 1.0f; triProjected.p[2].y += 1.0f;
-			triProjected.p[0].x *= 0.5f  * (float)WINDOW_WIDTH;
-			triProjected.p[0].y *= 0.5f  * (float)WINDOW_HEIGHT;
-			triProjected.p[1].x *= 0.5f  * (float)WINDOW_WIDTH;
-			triProjected.p[1].y *= 0.5f  * (float)WINDOW_HEIGHT;
-			triProjected.p[2].x *= 0.5f  * (float)WINDOW_WIDTH;
-			triProjected.p[2].y *= 0.5f  * (float)WINDOW_HEIGHT;
+			// clipping triangles
+			int nClippedTriangles = 0;
+			V3d::triangle clipped[2];
+			nClippedTriangles = TriangleClipAgainstPlane({ 0.0f, 0.0f, 0.1f }, { 0.0f, 0.0f, 1.0f }, triViewed, clipped[0], clipped[1]);
 
-			// store triangle for sorting
-			vecTrianglesToRaster.push_back(triProjected);
+			// we may end up with multiple triangles form the clip, so project as
+			// required
+			for (int n = 0; n < nClippedTriangles; n++) {
+
+				// Project triangles from 3D --> 2D
+				triProjected.p[0] = MatrixMultiplyVector(projection_matrix, clipped[n].p[0]);
+				triProjected.p[1] = MatrixMultiplyVector(projection_matrix, clipped[n].p[1]);
+				triProjected.p[2] = MatrixMultiplyVector(projection_matrix, clipped[n].p[2]);
+				triProjected.c = clipped[n].c;
+
+
+				triProjected.t[0] = clipped[n].t[0];
+				triProjected.t[1] = clipped[n].t[1];
+				triProjected.t[2] = clipped[n].t[2];
+
+				// U
+				triProjected.t[0].x = triProjected.t[0].x / triProjected.p[0].w;
+				triProjected.t[1].x = triProjected.t[1].x / triProjected.p[1].w;
+				triProjected.t[2].x = triProjected.t[2].x / triProjected.p[2].w;
+
+				// V
+				triProjected.t[0].y = triProjected.t[0].y / triProjected.p[0].w;
+				triProjected.t[1].y = triProjected.t[1].y / triProjected.p[1].w;
+				triProjected.t[2].y = triProjected.t[2].y / triProjected.p[2].w;
+
+				// W
+				triProjected.t[0].w = 1.0f / triProjected.p[0].w;
+				triProjected.t[1].w = 1.0f / triProjected.p[1].w;
+				triProjected.t[2].w = 1.0f / triProjected.p[2].w;
+
+				// scale into view, we moved the normalising into cartesian space
+				// out of the matrix.vector function from the previous videos, so
+				// do this manually
+				triProjected.p[0] = VectorDiv(triProjected.p[0], triProjected.p[0].w);
+				triProjected.p[1] = VectorDiv(triProjected.p[1], triProjected.p[1].w);
+				triProjected.p[2] = VectorDiv(triProjected.p[2], triProjected.p[2].w);
+
+				// X/Y are inverted so put them back
+				triProjected.p[0].x *= -1.0f;
+				triProjected.p[1].x *= -1.0f;
+				triProjected.p[2].x *= -1.0f;
+				triProjected.p[0].y *= -1.0f;
+				triProjected.p[1].y *= -1.0f;
+				triProjected.p[2].y *= -1.0f;
+
+				// offset verts into visible Normalized space
+				V3d::vec3 vOffsetView = { 1,1,0 };
+				triProjected.p[0] = VectorAdd(triProjected.p[0], vOffsetView);
+				triProjected.p[1] = VectorAdd(triProjected.p[1], vOffsetView);
+				triProjected.p[2] = VectorAdd(triProjected.p[2], vOffsetView);
+				triProjected.p[0].x *= 0.5f * (float)WINDOW_WIDTH;
+				triProjected.p[0].y *= 0.5f * (float)WINDOW_HEIGHT;
+				triProjected.p[1].x *= 0.5f * (float)WINDOW_WIDTH;
+				triProjected.p[1].y *= 0.5f * (float)WINDOW_HEIGHT;
+				triProjected.p[2].x *= 0.5f * (float)WINDOW_WIDTH;
+				triProjected.p[2].y *= 0.5f * (float)WINDOW_HEIGHT;
+
+				// store triangle for sorting
+				vecTrianglesToRaster.push_back(triProjected);
+			}
 		}
 	}
 
@@ -205,30 +192,68 @@ void RenderScene() {
 		return z1 > z2;
 	});
 
-	for (auto &triProjected : vecTrianglesToRaster)
-	{
-		// rasterize triangle
-#define RENDER_SHADED
-#ifdef RENDER_SHADED
-		v3d.RenderFillTriangle(triProjected.p[0].x, triProjected.p[0].y,
-			triProjected.p[1].x, triProjected.p[1].y,
-			triProjected.p[2].x, triProjected.p[2].y,
-			triProjected.c);
-#elif defined RENDER_WIREFRAME
-		v3d.RenderTriangle(triProjected.p[0].x, triProjected.p[0].y,
-			triProjected.p[1].x, triProjected.p[1].y,
-			triProjected.p[2].x, triProjected.p[2].y,
-			triProjected.c);
-#else
-		v3d.RenderTriangle(triProjected.p[0].x, triProjected.p[0].y,
-			triProjected.p[1].x, triProjected.p[1].y,
-			triProjected.p[2].x, triProjected.p[2].y,
-			pixel(255,0,0));
-#endif
-	}
-#endif
+	v3d.Clear(V3d::pixel(0, 0, 0));
 
-#endif
+	for (auto &triToRaster : vecTrianglesToRaster)
+	{
+		// clip triangles against all four screen edges, this could yield
+		// a bunch of triangles, so create a queue that we traverse to 
+		//  ensure we only test new triangles generated against planes
+		V3d::triangle clipped[2];
+		std::list<V3d::triangle> listTriangles;
+
+		// add initial triangle
+		listTriangles.push_back(triToRaster);
+		int nNewTriangles = 1;
+
+		for (int p = 0; p < 4; p++)
+		{
+			int nTrisToAdd = 0;
+			while (nNewTriangles > 0)
+			{
+				// take triangle from front of queue
+				V3d::triangle test = listTriangles.front();
+				listTriangles.pop_front();
+				nNewTriangles--;
+
+				// clip it against a plane. We only need to test each 
+				// subsequent plane, against subsequent new triangles
+				// as all triangles after a plane clip are guaranteed
+				// to lie on the inside of the plane. I like how this
+				// comment is almost completely and utterly justified
+				switch (p)
+				{
+					case 0:	nTrisToAdd = TriangleClipAgainstPlane({ 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, test, clipped[0], clipped[1]); break;
+					case 1:	nTrisToAdd = TriangleClipAgainstPlane({ 0.0f, (float)WINDOW_HEIGHT - 1, 0.0f }, { 0.0f, -1.0f, 0.0f }, test, clipped[0], clipped[1]); break;
+					case 2:	nTrisToAdd = TriangleClipAgainstPlane({ 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, test, clipped[0], clipped[1]); break;
+					case 3:	nTrisToAdd = TriangleClipAgainstPlane({ (float)WINDOW_WIDTH - 1, 0.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, test, clipped[0], clipped[1]); break;
+				}
+
+				// clipping may yield a variable number of triangles, so
+				// add these new ones to the back of the queue for subsequent
+				// clipping against next planes
+				for (int w = 0; w < nTrisToAdd; w++)
+					listTriangles.push_back(clipped[w]);
+			}
+			nNewTriangles = listTriangles.size();
+		}
+
+
+		// draw the transformed, viewed, clipped, projected, sorted, clipped triangles
+		for (auto &t : listTriangles)
+		{
+			/*
+			TexturedTriangle(t.p[0].x, t.p[0].y, t.t[0].u, t.t[0].v, t.t[0].w,
+				t.p[1].x, t.p[1].y, t.t[1].u, t.t[1].v, t.t[1].w,
+				t.p[2].x, t.p[2].y, t.t[2].u, t.t[2].v, t.t[2].w, sprTex1);
+				*/
+
+			v3d.RenderFillTriangle(t.p[0].x, t.p[0].y,
+				t.p[1].x, t.p[1].y,
+				t.p[2].x, t.p[2].y,
+				t.c);
+		}
+	}
 
 	v3d.SwapBuffers();
 }
